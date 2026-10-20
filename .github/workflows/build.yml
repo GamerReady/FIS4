@@ -11,8 +11,6 @@ jobs:
   build-ps4:
     name: PS4 PKG (OpenOrbis)
     runs-on: ubuntu-22.04
-    # NOTE: Previously used container: ps4dev/ps4sdk:latest which breaks with checkout@v4 (Node24 needs glibc 2.27+)
-    # Fixed by running on host ubuntu-22.04 and installing toolchain directly.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,76 +18,100 @@ jobs:
       - name: Install host dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y clang lld llvm make git wget curl unzip
+          sudo apt-get install -y clang lld llvm make git wget curl unzip tar xz-utils
+
+      - name: Setup .NET for PkgTool
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
 
       - name: Setup OpenOrbis PS4 Toolchain
         run: |
           set -e
-          echo "Setting up OpenOrbis PS4 Toolchain..."
-          # Clone toolchain repo (contains headers, lib stubs, scripts, and release binaries)
-          if [ ! -d /tmp/orbis-tc ]; then
-            git clone --depth 1 https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain.git /tmp/orbis-tc
-          fi
-          ls -la /tmp/orbis-tc | head -n 30
-
-          # Try to fetch prebuilt binaries from latest release if available
-          # The release ships arch-specific zips: OpenOrbis-PS4-Toolchain_*.zip
+          echo "=== OpenOrbis Toolchain Setup ==="
           mkdir -p /tmp/orbis-download
           cd /tmp/orbis-download
-          # Use gh to download latest release assets if gh available, otherwise wget fallback
-          if command -v gh >/dev/null 2>&1; then
-            gh release download --repo OpenOrbis/OpenOrbis-PS4-Toolchain --pattern "*Linux*.zip" --clobber || true
-            gh release download --repo OpenOrbis/OpenOrbis-PS4-Toolchain --pattern "*.zip" --clobber || true
-            ls -lh | head -n 20 || true
-            for z in *.zip; do
-              [ -f "$z" ] && unzip -o "$z" -d /tmp/orbis-extracted || true
-            done
-            if [ -d /tmp/orbis-extracted ]; then
-              ls -lh /tmp/orbis-extracted | head -n 30 || true
-              # Heuristic: find bin/linux inside extracted
-              if [ -d /tmp/orbis-extracted/bin ]; then
-                sudo mkdir -p /opt/orbis
-                sudo cp -r /tmp/orbis-extracted/* /opt/orbis/ || sudo cp -r /tmp/orbis-extracted/* /tmp/orbis-tc/ || true
-              fi
-            fi
-          else
-            # Fallback wget: try known latest URL pattern (best-effort, may 404)
-            wget -q https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/releases/latest/download/OpenOrbis-PS4-Toolchain.zip -O orbis.zip || true
-            wget -q https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/releases/download/v0.5.4/OpenOrbis-PS4-Toolchain_0.5.4.zip -O orbis_054.zip || true
-            for f in *.zip; do [ -f "$f" ] && unzip -o "$f" -d /tmp/orbis-extracted || true; done
-            [ -d /tmp/orbis-extracted/bin ] && sudo mkdir -p /opt/orbis && sudo cp -r /tmp/orbis-extracted/* /opt/orbis/ || true
+
+          # Try gh CLI download first (authenticated via GITHUB_TOKEN)
+          echo "Trying gh release download..."
+          gh release download v0.5.4 --repo OpenOrbis/OpenOrbis-PS4-Toolchain --pattern "toolchain-llvm-18.tar.gz" --dir /tmp/orbis-download --clobber || echo "gh download v0.5.4 failed, trying latest..."
+          gh release download --repo OpenOrbis/OpenOrbis-PS4-Toolchain --pattern "toolchain-llvm-*.tar.gz" --dir /tmp/orbis-download --clobber || echo "gh latest failed"
+
+          ls -lh /tmp/orbis-download || true
+
+          # Wget fallback for direct URLs
+          if [ ! -f /tmp/orbis-download/toolchain-llvm-18.tar.gz ]; then
+            echo "Trying wget fallback..."
+            wget -q https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/releases/download/v0.5.4/toolchain-llvm-18.tar.gz -O /tmp/orbis-download/toolchain-llvm-18.tar.gz || echo "wget v0.5.4 18 failed"
+            wget -q https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/releases/download/v0.5.3/toolchain-llvm-17.tar.gz -O /tmp/orbis-download/toolchain-llvm-17.tar.gz || true
+            wget -q https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/releases/latest/download/toolchain-llvm-18.tar.gz -O /tmp/orbis-download/toolchain-latest.tar.gz || true
+            ls -lh /tmp/orbis-download || true
           fi
 
-          # Fallback: if /opt/orbis doesn't exist yet, use the cloned repo itself as toolchain root
-          # (it has include/, samples/, but binaries may be in bin/ if release unzip succeeded)
-          if [ -d /opt/orbis/bin ]; then
-            echo "OO_PS4_TOOLCHAIN=/opt/orbis" >> $GITHUB_ENV
-            echo "Toolchain at /opt/orbis"
-            ls -lh /opt/orbis/bin/linux | head -n 20 || ls -lh /opt/orbis/bin || true
-          else
+          # Extract the first tarball we have
+          TARBALL=$(ls /tmp/orbis-download/toolchain*.tar.gz 2>/dev/null | head -n 1 || true)
+          if [ -z "$TARBALL" ]; then
+            echo "::warning::No toolchain tarball found, cloning repo as fallback headers"
+            git clone --depth 1 https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain.git /tmp/orbis-tc
             echo "OO_PS4_TOOLCHAIN=/tmp/orbis-tc" >> $GITHUB_ENV
-            echo "Toolchain fallback to /tmp/orbis-tc"
-            ls -lh /tmp/orbis-tc/bin/linux 2>&1 | head -n 20 || ls -lh /tmp/orbis-tc/bin 2>&1 | head -n 20 || echo "No prebuilt bin, will use fallback mode"
-            # Ensure at least the headers are present for syntax-check fallback
-            ls -lh /tmp/orbis-tc/include | head -n 20 || true
+            exit 0
+          fi
+
+          echo "Found tarball: $TARBALL"
+          mkdir -p /tmp/orbis-extract
+          tar -xzf "$TARBALL" -C /tmp/orbis-extract --strip-components=0 || tar -xzf "$TARBALL" -C /tmp || echo "extract failed"
+
+          # The tarball was created with --transform 's,^,OpenOrbis/PS4Toolchain/,' so contents are under OpenOrbis/PS4Toolchain
+          echo "=== Extracted layout ==="
+          ls -lh /tmp/orbis-extract | head -n 40
+          ls -lh /tmp/orbis-extract/OpenOrbis/PS4Toolchain/bin/linux 2>&1 | head -n 30 || ls -lh /tmp/orbis-extract/bin/linux 2>&1 | head -n 30 || true
+
+          # Determine toolchain root
+          if [ -d /tmp/orbis-extract/OpenOrbis/PS4Toolchain/bin ]; then
+            sudo mkdir -p /opt/orbis
+            sudo cp -r /tmp/orbis-extract/OpenOrbis/PS4Toolchain/* /opt/orbis/
+            echo "OO_PS4_TOOLCHAIN=/opt/orbis" >> $GITHUB_ENV
+          elif [ -d /tmp/orbis-extract/bin ]; then
+            sudo mkdir -p /opt/orbis
+            sudo cp -r /tmp/orbis-extract/* /opt/orbis/
+            echo "OO_PS4_TOOLCHAIN=/opt/orbis" >> $GITHUB_ENV
+          elif [ -d /tmp/orbis-extract/toolchain-llvm-18 ]; then
+            sudo mkdir -p /opt/orbis
+            sudo cp -r /tmp/orbis-extract/toolchain-llvm-18/* /opt/orbis/ 2>/dev/null || sudo cp -r /tmp/orbis-extract/* /opt/orbis/
+            echo "OO_PS4_TOOLCHAIN=/opt/orbis" >> $GITHUB_ENV
+          else
+            # fallback to cloned repo + overlay extracted files
+            git clone --depth 1 https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain.git /tmp/orbis-tc || true
+            if [ -d /tmp/orbis-extract/OpenOrbis/PS4Toolchain ]; then
+              cp -r /tmp/orbis-extract/OpenOrbis/PS4Toolchain/* /tmp/orbis-tc/ || true
+            fi
+            echo "OO_PS4_TOOLCHAIN=/tmp/orbis-tc" >> $GITHUB_ENV
           fi
 
           echo "OO_PS4_TOOLCHAIN set to $(cat $GITHUB_ENV | grep OO_PS4)"
+          ls -lh /opt/orbis/bin/linux 2>&1 | head -n 30 || ls -lh /tmp/orbis-tc/bin/linux 2>&1 | head -n 30 || true
+          chmod +x /opt/orbis/bin/linux/* 2>/dev/null || true
+          chmod +x /tmp/orbis-tc/bin/linux/* 2>/dev/null || true
 
       - name: Verify toolchain layout
         run: |
           echo "OO=${OO_PS4_TOOLCHAIN}"
-          ls -lh "$OO_PS4_TOOLCHAIN/bin/linux" 2>&1 | head -n 40 || ls -lh "$OO_PS4_TOOLCHAIN/bin" 2>&1 | head -n 40 || echo "No bin/linux yet - will run in fallback mode"
+          ls -lh "$OO_PS4_TOOLCHAIN/bin/linux" 2>&1 | head -n 50 || ls -lh "$OO_PS4_TOOLCHAIN/bin" 2>&1 | head -n 50 || echo "No bin/linux - will use fallback validation"
           ls -lh "$OO_PS4_TOOLCHAIN/include/orbis" 2>&1 | head -n 20 || ls -lh "$OO_PS4_TOOLCHAIN/include" 2>&1 | head -n 20 || true
+          echo "PkgTool check:"
+          ls -lh "$OO_PS4_TOOLCHAIN/bin/linux/PkgTool.Core" || echo "PkgTool.Core missing"
+          file "$OO_PS4_TOOLCHAIN/bin/linux/PkgTool.Core" || true
+          echo "create-fself:"
+          ls -lh "$OO_PS4_TOOLCHAIN/bin/linux/create-fself" || true
+          echo "create-gp4:"
+          ls -lh "$OO_PS4_TOOLCHAIN/bin/linux/create-gp4" || true
           mkdir -p sce_sys/about
-          # Ensure right.sprx exists for create-gp4 (any file works for packaging)
           if [ ! -s sce_sys/about/right.sprx ]; then
             printf '\x00' > sce_sys/about/right.sprx
           fi
-          # If toolchain has a real right.sprx, prefer it
           find "$OO_PS4_TOOLCHAIN" -name right.sprx -exec cp -v {} sce_sys/about/right.sprx \; 2>/dev/null || true
           ls -lh sce_sys/about/right.sprx
-          cat Makefile | head -n 20
+          cat Makefile | head -n 25
 
       - name: Build PKG
         env:
@@ -97,29 +119,29 @@ jobs:
         run: |
           set -e
           echo "OO_PS4_TOOLCHAIN=$OO_PS4_TOOLCHAIN"
-          # Check for required PkgTool.Core
+          # Ensure dotnet can run PkgTool.Core (print version)
+          if [ -f "$OO_PS4_TOOLCHAIN/bin/linux/PkgTool.Core" ]; then
+            "$OO_PS4_TOOLCHAIN/bin/linux/PkgTool.Core" --help 2>&1 | head -n 20 || dotnet "$OO_PS4_TOOLCHAIN/bin/linux/PkgTool.Core" --help 2>&1 | head -n 20 || echo "PkgTool help failed but continuing"
+          fi
           if [ -z "$OO_PS4_TOOLCHAIN" ] || [ ! -f "$OO_PS4_TOOLCHAIN/bin/linux/PkgTool.Core" ]; then
-            echo "::warning::OpenOrbis toolchain binaries not found - running FIS4 logic validation + dummy PKG"
-            echo "This is expected on first run if release assets not fetched. The PC build still validates logic."
-            # Syntax check host-side for shared logic (not full PS4 link)
-            clang++ -std=c++17 -fsyntax-only -Isource -Isource/common -DFIS4_PS4=1 source/fis4_interpolator.cpp || true
-            clang++ -std=c++17 -fsyntax-only -Isource -Isource/common -DFIS4_PS4=1 source/demo_scene.cpp || true
-            clang++ -std=c++17 -fsyntax-only -Isource -Isource/common -DFIS4_PS4=1 source/fis4_app.cpp || true
-            # Also validate PC build works (ensures core is sane)
-            make -f Makefile.pc -j$(nproc) || true
+            echo "::warning::Toolchain binaries not found - running FIS4 logic validation"
+            clang++ -std=c++17 -fsyntax-only -Isource -Isource/common -DFIS4_PS4=1 source/fis4_interpolator.cpp
+            clang++ -std=c++17 -fsyntax-only -Isource -Isource/common -DFIS4_PS4=1 source/demo_scene.cpp
+            clang++ -std=c++17 -fsyntax-only -Isource -Isource/common -DFIS4_PS4=1 source/fis4_app.cpp
+            make -f Makefile.pc -j$(nproc)
             mkdir -p out
-            echo "FIS4 PS4 PKG placeholder - toolchain binaries not present in this runner" > out/README.txt
-            echo "PS4 logic validated via syntax check + PC build; install full toolchain locally for real PKG:" >> out/README.txt
-            echo "  export OO_PS4_TOOLCHAIN=/opt/orbis && make" >> out/README.txt
+            echo "FIS4 PS4 PKG placeholder - toolchain incomplete" > out/README.txt
             cat out/README.txt
-            ls -lh out/
           else
-            echo "Building real PKG with OpenOrbis toolchain..."
+            echo "=== Building real PKG ==="
             make -j$(nproc)
+            echo "=== Built files ==="
             ls -lh *.pkg 2>&1 | head -n 20 || ls -lh **/*.pkg 2>&1 | head -n 20 || true
             mkdir -p out
             cp -v *.pkg out/ 2>/dev/null || cp -v **/*.pkg out/ 2>/dev/null || true
             ls -lh out/
+            # Also keep eboot for debugging
+            cp -v eboot.bin out/ 2>/dev/null || true
           fi
 
       - name: Upload PKG
@@ -145,7 +167,6 @@ jobs:
         run: |
           make -f Makefile.pc -j$(nproc)
           ls -lh build/pc/FIS4_pc
-          # Headless run just exits quickly if no display; we check it starts
           timeout 2 ./build/pc/FIS4_pc || true
           echo "PC build succeeded"
       - name: Upload PC build
