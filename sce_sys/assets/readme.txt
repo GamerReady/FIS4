@@ -1,0 +1,1 @@
+FIS4 assets placeholder
