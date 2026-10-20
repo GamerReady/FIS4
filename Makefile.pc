@@ -1,0 +1,52 @@
+# FIS4 - PC Simulation Build (SDL2)
+# For testing the interpolation logic on PC/Linux/macOS
+# Usage: make -f Makefile.pc && ./build/pc/FIS4_pc
+
+CXX := g++
+CC  := gcc
+TARGET := build/pc/FIS4_pc
+SRCDIR := source
+COMMONDIR := source/common
+
+# Try to detect SDL2
+SDL_CFLAGS := $(shell sdl2-config --cflags 2>/dev/null)
+SDL_LIBS   := $(shell sdl2-config --libs 2>/dev/null)
+
+# Fallback if SDL not installed: build without renderer (logic test only)
+ifeq ($(SDL_CFLAGS),)
+  SDL_CFLAGS := -DFIS4_NO_SDL
+  SDL_LIBS   :=
+  $(info SDL2 not found - building headless logic test)
+else
+  SDL_CFLAGS += -DFIS4_SDL=1
+endif
+
+CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -Isource -Isource/common $(SDL_CFLAGS) -DFIS4_PC=1
+CFLAGS   := -O2 -Wall -Isource -Isource/common -DFIS4_PC=1
+LDFLAGS  := $(SDL_LIBS) -lm -pthread
+
+# Sources (shared logic + PC renderer)
+CPPFILES := source/fis4_app.cpp source/fis4_interpolator.cpp source/demo_scene.cpp source/main_pc.cpp
+CFILES   :=
+
+OBJS := $(patsubst source/%.cpp, build/pc/%.o, $(CPPFILES))
+
+all: $(TARGET)
+
+build/pc/%.o: source/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(OBJS) -o $@ $(LDFLAGS)
+	@echo "Built PC simulation: $@"
+	@echo "Run: ./build/pc/FIS4_pc"
+
+clean:
+	rm -rf build/pc
+
+run: all
+	./build/pc/FIS4_pc
+
+.PHONY: all clean run

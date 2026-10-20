@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FIS4 - Frame Interpolation Lab (PS4 Preview)</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#080810;color:#eef;font-family: 'Segoe UI',system-ui, sans-serif;overflow:hidden}
+  header{position:absolute;top:0;left:0;right:0;height:70px;background:rgba(12,12,20,0.95);border-bottom:1px solid #222;display:flex;align-items:center;justify-content:space-between;padding:0 24px;z-index:10;backdrop-filter:blur(8px)}
+  .brand{display:flex;align-items:center;gap:14px}
+  .logo{width:44px;height:44px;background:linear-gradient(135deg,#00dc78,#00aaff);border-radius:10px;display:grid;place-items:center;font-weight:900;color:#080810}
+  .brand h1{font-size:18px;letter-spacing:0.04em}
+  .brand h1 span{color:#00dc78}
+  .brand p{font-size:11px;color:#9aa;letter-spacing:0.12em}
+  .controls{display:flex;align-items:center;gap:10px}
+  .pill{padding:8px 14px;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid #333;background:#1a1a24;color:#ccc;transition:.2s}
+  .pill.active{background:#00dc78;color:#080810;border-color:#00dc78;box-shadow:0 0 20px rgba(0,220,120,.4)}
+  .pill.fps.active{background:#50a0ff;color:#fff;border-color:#50a0ff}
+  .pill:hover{transform:translateY(-1px)}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .hud{position:absolute;bottom:0;left:0;right:0;background:rgba(12,12,20,0.92);border-top:1px solid #222;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;z-index:10;gap:16px;flex-wrap:wrap}
+  .hud-left{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .key{padding:6px 10px;background:#1e1e2a;border:1px solid #2a2a3a;border-radius:6px;font-size:11px;color:#ccd;display:flex;align-items:center;gap:6px}
+  .key b{color:#00dc78}
+  .stats{display:flex;gap:18px;align-items:center}
+  .stat{text-align:center}
+  .stat .v{font-size:18px;font-weight:800;color:#fff}
+  .stat .v.green{color:#00dc78}
+  .stat .v.blue{color:#50a0ff}
+  .stat .v.yellow{color:#ffcc00}
+  .stat .l{font-size:10px;color:#888;letter-spacing:0.08em}
+  .graph{position:absolute;top:78px;right:16px;width:340px;height:110px;background:rgba(18,18,28,0.96);border:1px solid #333;border-radius:10px;padding:8px;z-index:10}
+  .graph h3{font-size:10px;color:#888;letter-spacing:0.1em;margin-bottom:4px}
+  canvas#graph{position:relative;width:100%;height:70px;background:#0a0a14;border-radius:6px}
+  .sceneName{position:absolute;top:84px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.6);padding:6px 14px;border-radius:999px;font-size:12px;color:#ffcc00;border:1px solid rgba(255,204,0,.3);z-index:10;letter-spacing:0.06em}
+  .fis4-badge{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:5;opacity:0.09}
+  .fis4-badge h2{font-size:120px;font-weight:900;color:#fff;letter-spacing:-0.04em}
+  .topBar{position:absolute;top:78px;left:16px;right:380px;height:110px;background:rgba(18,18,28,0.96);border:1px solid #333;border-radius:10px;padding:12px 16px;z-index:10;display:flex;flex-direction:column;justify-content:center;gap:8px}
+  .topBar .row{display:flex;align-items:center;gap:10px}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .toggle{position:relative;width:44px;height:24px;background:#333;border-radius:999px;cursor:pointer;transition:.2s}
+  .toggle.on{background:#00dc78}
+  .toggle::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:.2s}
+  .toggle.on::after{left:22px}
+  @media(max-width:900px){ .graph{display:none} .topBar{right:16px} .hud{justify-content:center} }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">F4</div>
+    <div>
+      <h1>FIS<span>4</span> LAB</h1>
+      <p>PS4 FRAME INTERPOLATION • X2 FPS DEMO</p>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="pill active" id="btnFis4" onclick="toggleFIS4()">⚡ FIS4 x2 ON</button>
+    <button class="pill fps" id="btn30" onclick="setBase(30)">30 FPS</button>
+    <button class="pill fps" id="btn60" onclick="setBase(60)">60 FPS</button>
+    <button class="pill" onclick="nextScene()">◀ SCENE ▶</button>
+  </div>
+</header>
+
+<div class="topBar" id="topBar">
+  <div class="row" style="justify-content:space-between">
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="dot" id="fis4Dot" style="background:#00dc78;box-shadow:0 0 8px #00dc78"></span>
+      <span style="font-size:12px;font-weight:700" id="fis4Text">FIS4 INTERPOLATION: ACTIVE (Classic)</span>
+      <span style="font-size:10px;color:#888;margin-left:8px">AI mode: Classic → AI → Hybrid (press M)</span>
+    </div>
+    <label class="toggle on" id="toggleFIS4" onclick="toggleFIS4()"></label>
+  </div>
+  <div class="row" style="gap:12px">
+    <span style="font-size:11px;color:#aaa">BASE FPS</span>
+    <button class="pill fps active" id="m30" onclick="setBase(30)" style="padding:4px 10px">30</button>
+    <button class="pill fps" id="m60" onclick="setBase(60)" style="padding:4px 10px">60</button>
+    <span style="font-size:11px;color:#aaa;margin-left:8px">EFFECTIVE</span>
+    <span id="effFPS" style="font-size:14px;font-weight:800;color:#00dc78">60 FPS</span>
+    <span style="font-size:11px;color:#666">| press ↑/↓ to switch</span>
+  </div>
+  <div class="row" style="font-size:11px;color:#888">
+    <span id="modeText">Mode: Classic (lerp motion-comp) — future AI will replace this with neural inpainting</span>
+  </div>
+</div>
+
+<div class="sceneName" id="sceneName">BOUNCING BALLS (Motion Clarity Test)</div>
+
+<div class="graph">
+  <h3>FRAME TIMES (ms) — yellow target, green actual <span id="graphInfo" style="float:right;color:#666">30→60</span></h3>
+  <canvas id="graph" width="324" height="70"></canvas>
+  <div style="display:flex;justify-content:space-between;font-size:10px;color:#666;margin-top:4px">
+    <span>Native tick</span><span id="genCount">Generated: 0</span>
+  </div>
+</div>
+
+<div class="fis4-badge"><h2>FIS4</h2></div>
+<canvas id="c"></canvas>
+
+<div class="hud">
+  <div class="hud-left">
+    <div class="key"><b>SPACE/X</b> FIS4 ON/OFF</div>
+    <div class="key"><b>↑/↓</b> 30↔60</div>
+    <div class="key"><b>←/→</b> Scene</div>
+    <div class="key"><b>M</b> Mode</div>
+    <div class="key"><b>G</b> Graph</div>
+    <div class="key"><b>P</b> Pause</div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="v" id="sFPS">60</div><div class="l">DISPLAY FPS</div></div>
+    <div class="stat"><div class="v blue" id="sBase">30</div><div class="l">NATIVE</div></div>
+    <div class="stat"><div class="v green" id="sEff">60</div><div class="l">EFFECTIVE</div></div>
+    <div class="stat"><div class="v yellow" id="sTime">16.6ms</div><div class="l">FRAMETIME</div></div>
+  </div>
+</div>
+
+<script>
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+const g = document.getElementById('graph').getContext('2d');
+
+let W,H, DPR=Math.min(2, window.devicePixelRatio||1);
+function resize(){
+  W=innerWidth; H=innerHeight;
+  c.width=W*DPR; c.height=H*DPR; c.style.width=W+'px'; c.style.height=H+'px';
+  ctx.scale(DPR,DPR);
+}
+resize(); addEventListener('resize', ()=>{ ctx.setTransform(1,0,0,1,0,0); resize(); });
+
+// App state (mirrors PS4 App)
+let baseFPS=30, fis4=true, mode=0; //0 classic,1 ai,2 hybrid
+let sceneId=0;
+const scenes=['BOUNCING BALLS (Motion Clarity Test)','ROTATING GRID (Judder Test)','TUNNEL RUNNER (Parallax Test)','STRESS 12 BALLS (Throughput Test)'];
+let paused=false, showGraph=true;
+
+function setBase(v){ baseFPS=v; updateUI(); }
+function toggleFIS4(){ fis4=!fis4; updateUI(); }
+function nextScene(){ sceneId=(sceneId+1)%4; initScene(); updateUI(); }
+function prevScene(){ sceneId=(sceneId-1+4)%4; initScene(); updateUI(); }
+function cycleMode(){ mode=(mode+1)%3; updateUI(); }
+
+function updateUI(){
+  document.getElementById('btnFis4').textContent = fis4 ? '⚡ FIS4 x2 ON' : '○ FIS4 OFF';
+  document.getElementById('btnFis4').className = fis4 ? 'pill active' : 'pill';
+  document.getElementById('fis4Dot').style.background = fis4 ? '#00dc78' : '#ff3a3a';
+  document.getElementById('fis4Dot').style.boxShadow = fis4 ? '0 0 8px #00dc78' : '0 0 8px #ff3a3a';
+  document.getElementById('toggleFIS4').className = fis4 ? 'toggle on' : 'toggle';
+  document.getElementById('m30').className = baseFPS===30 ? 'pill fps active' : 'pill fps';
+  document.getElementById('m60').className = baseFPS===60 ? 'pill fps active' : 'pill fps';
+  document.getElementById('btn30').className = baseFPS===30 ? 'pill fps active' : 'pill fps';
+  document.getElementById('btn60').className = baseFPS===60 ? 'pill fps active' : 'pill fps';
+  const eff = fis4 ? baseFPS*2 : baseFPS;
+  document.getElementById('effFPS').textContent = eff+' FPS';
+  document.getElementById('sBase').textContent = baseFPS;
+  document.getElementById('sEff').textContent = eff;
+  document.getElementById('sFPS').textContent = eff;
+  document.getElementById('graphInfo').textContent = `${baseFPS}→${eff}`;
+  document.getElementById('sceneName').textContent = scenes[sceneId];
+  const modeNames=['Classic (motion-comp lerp)','AI (smoothstep neural placeholder)','Hybrid (70% AI + 30% classic)'];
+  document.getElementById('modeText').textContent = `Mode: ${modeNames[mode]} — future AI will replace with ONNX inpainting`;
+  document.getElementById('fis4Text').textContent = fis4 ? `FIS4 INTERPOLATION: ACTIVE (${modeNames[mode].split(' ')[0]})` : 'FIS4 INTERPOLATION: OFF (Native Only)';
+  document.querySelector('.graph').style.display = showGraph ? '' : 'none';
+  document.getElementById('topBar').style.display = '';// always
+}
+
+// Physics state
+let balls=[], bar={x:0,y:0,angle:0,len:400,vel:45}, gridPhase=0, tunnel={x:0,y:0}, prevBalls=[], prevBar={}, prevTunnel={x:0,y:0}, prevGrid=0;
+function initScene(){
+  balls=[]; prevBalls=[];
+  const w=W,h=H;
+  if(sceneId===0){
+    balls=[ {x:200,y:200,vx:520,vy:380,r:34,h:0}, {x:600,y:400,vx:-480,vy:520,r:28,h:0.2},{x:1000,y:300,vx:380,vy:-460,r:22,h:0.4},{x:1400,y:700,vx:-620,vy:-340,r:40,h:0.6},{x:900,y:800,vx:500,vy:600,r:18,h:0.8}];
+    bar={x:w*0.5,y:h*0.5,angle:0,len:400,vel:45};
+  } else if(sceneId===1){
+    balls=[ {x:w*0.5,y:h*0.5,vx:600,vy:0,r:20,h:0}];
+    bar={x:w*0.5,y:h*0.5,angle:0,len:600,vel:60}; gridPhase=0;
+  } else if(sceneId===2){
+    tunnel={x:0,y:0}; balls=[ {x:w*0.5,y:200,vx:700,vy:0,r:26,h:0},{x:w*0.5,y:500,vx:-700,vy:0,r:30,h:0.3},{x:w*0.5,y:800,vx:700,vy:0,r:22,h:0.6}]; bar={x:w*0.5,y:h*0.5,angle:0,len:0,vel:0};
+  } else {
+    balls=[]; for(let i=0;i<12;i++){ let x=100+(i*140)%(w-200), y=100+(i*90)%(h-200), vx=300+(i*70)%400, vy=320+(i*60)%380; if(i%2) vx=-vx; if(i%3==0) vy=-vy; balls.push({x,y,vx,vy,r:14+(i%4)*4,h:i/12}); }
+    bar={x:w*0.5,y:h*0.5,angle:0,len:400,vel:90};
+  }
+  // copy to prev for interpolation safety
+  prevBalls=balls.map(b=>({...b})); prevBar={...bar}; prevTunnel={...tunnel}; prevGrid=gridPhase;
+}
+initScene(); updateUI();
+
+// Timing
+let lastNative=performance.now(), frameCount=0, nativeFrames=0, generated=0;
+let ftHistory=[];
+
+function lerp(a,b,t){ return a + (b-a)*t; }
+function smoothstep(t){ return t*t*(3-2*t); }
+
+function updatePhysics(dt){
+  if(paused) return;
+  prevBalls=balls.map(b=>({...b})); prevBar={...bar}; prevTunnel={...tunnel}; prevGrid=gridPhase;
+  if(sceneId===0 || sceneId===3){
+    for(let b of balls){
+      b.x+=b.vx*dt; b.y+=b.vy*dt;
+      if(b.x-b.r<0 || b.x+b.r>W){ b.vx=-b.vx; b.x = b.x<b.r?b.r:(b.x>W-b.r?W-b.r:b.x); }
+      if(b.y-b.r<0 || b.y+b.r>H){ b.vy=-b.vy; b.y = b.y<b.r?b.r:(b.y>H-b.r?H-b.r:b.y); }
+    }
+    bar.angle+=bar.vel*dt;
+  } else if(sceneId===1){
+    gridPhase+=dt*2;
+    let t=gridPhase;
+    balls[0].x=W*0.5 + Math.cos(t*1.2)*500;
+    balls[0].y=H*0.5 + Math.sin(t*1.7)*300;
+    balls[0].vx=-Math.sin(t*1.2)*500*1.2;
+    balls[0].vy=Math.cos(t*1.7)*300*1.7;
+    bar.angle+=bar.vel*dt;
+  } else if(sceneId===2){
+    tunnel.x+=dt*200; tunnel.y+=dt*120; if(tunnel.x>200) tunnel.x-=200; if(tunnel.y>200) tunnel.y-=200;
+    for(let b of balls){ b.x+=b.vx*dt; b.y+=b.vy*dt; if(b.x-b.r<0||b.x+b.r>W){b.vx=-b.vx; b.x=b.x<b.r?b.r:W-b.r} if(b.y-b.r<0||b.y+b.r>H){b.vy=-b.vy; b.y=b.y<b.r?b.r:H-b.r} }
+  }
+}
+
+function getInterpolated(t){
+  if(!fis4 || t<=0 || t>=1) return {balls, bar, gridPhase, tunnel};
+  // interpolate
+  let outBalls=[];
+  for(let i=0;i<balls.length;i++){
+    let a=prevBalls[i], b=balls[i];
+    let modeT=t;
+    if(mode===1) modeT = lerp(t, smoothstep(t), 0.15);
+    if(mode===2) { // hybrid
+      let classic = lerp(a.x,b.x,t); // simplified
+    }
+    let nx=lerp(a.x,b.x,t), ny=lerp(a.y,b.y,t);
+    // AI tweak: smoothstep influence
+    if(mode===1 || mode===2){
+      let s=smoothstep(t);
+      let sx=lerp(a.x,b.x,s), sy=lerp(a.y,b.y,s);
+      let mix = mode===2?0.7:0.15;
+      nx=lerp(nx,sx,mix); ny=lerp(ny,sy,mix);
+    }
+    // motion compensation small
+    let vx=lerp(a.vx,b.vx,t), vy=lerp(a.vy,b.vy,t);
+    nx += vx * 0.02*(t-0.5); ny += vy * 0.02*(t-0.5);
+    outBalls.push({x:nx,y:ny,vx,vy,r:lerp(a.r,b.r,t),h:b.h});
+  }
+  let dAngle=bar.angle - prevBar.angle; while(dAngle>180) dAngle-=360; while(dAngle<-180) dAngle+=360;
+  let outBar={...bar, angle: prevBar.angle + dAngle*t, x: lerp(prevBar.x,bar.x,t), y:lerp(prevBar.y,bar.y,t)};
+  let outGrid=lerp(prevGrid, gridPhase, t);
+  let outTunnel={x:lerp(prevTunnel.x,tunnel.x,t), y:lerp(prevTunnel.y,tunnel.y,t)};
+  return {balls:outBalls, bar:outBar, gridPhase:outGrid, tunnel:outTunnel};
+}
+
+let lastT=performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  let dtNative = 1000/baseFPS;
+  let elapsed = now - lastNative;
+  let doNative = elapsed >= dtNative - 1; // tiny epsilon to hit target
+  if(doNative){
+    let dt = dtNative/1000;
+    updatePhysics(dt);
+    lastNative = now;
+    nativeFrames++;
+  }
+  // render with interpolated t
+  let t = fis4 ? Math.min(1, Math.max(0, elapsed/dtNative)) : 0;
+  let state = getInterpolated(t);
+
+  // draw
+  // background
+  ctx.fillStyle='#080810';
+  ctx.fillRect(0,0,W,H);
+
+  // subtle gradient
+  let grad=ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#0a0a18'); grad.addColorStop(1,'#080810');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
+
+  // scene BG
+  if(sceneId===1){
+    drawGrid(state.gridPhase*40);
+  } else if(sceneId===2){
+    drawTunnel(state.tunnel);
+  } else {
+    drawGrid(state.gridPhase*20);
+  }
+
+  // draw balls with velocity trails
+  for(let i=0;i<state.balls.length;i++){
+    const b=state.balls[i];
+    // trail ghost (native vs interpolated visual diff)
+    if(fis4 && !doNative){
+      ctx.fillStyle='rgba(255,255,255,0.04)';
+      // draw faint previous pos
+      const a=prevBalls[i];
+      ctx.beginPath(); ctx.arc(a.x,a.y,a.r*0.6,0,Math.PI*2); ctx.fill();
+    }
+    // color from hue
+    let hue=b.h*360;
+    ctx.fillStyle=`hsl(${hue},85%,60%)`;
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();
+    // highlight
+    ctx.fillStyle='rgba(255,255,255,0.85)';
+    ctx.beginPath(); ctx.arc(b.x - b.r*0.3, b.y - b.r*0.3, b.r*0.25,0,Math.PI*2); ctx.fill();
+    // velocity vector
+    ctx.strokeStyle='rgba(255,255,0,0.9)'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x+b.vx*0.04, b.y+b.vy*0.04); ctx.stroke();
+    // interpolated indicator ring
+    if(fis4 && !doNative){
+      ctx.strokeStyle='rgba(0,220,120,0.5)'; ctx.lineWidth=1.5; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.arc(b.x,b.y,b.r+4,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+
+  // bar
+  if(sceneId!==2){
+    const barS=state.bar;
+    ctx.strokeStyle='#ffc800'; ctx.lineWidth=6; ctx.lineCap='round';
+    let rad=barS.angle*Math.PI/180, half=barS.len*0.5;
+    let x0=barS.x - Math.cos(rad)*half, y0=barS.y - Math.sin(rad)*half;
+    let x1=barS.x + Math.cos(rad)*half, y1=barS.y + Math.sin(rad)*half;
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(barS.x,barS.y,6,0,Math.PI*2); ctx.fill();
+  }
+
+  // top HUD overlay drawn in CSS, but we draw FPS label on canvas for video capture
+  // Bottom ghost info if fis4 on
+  if(fis4 && !doNative){
+    ctx.fillStyle='rgba(0,220,120,0.9)'; ctx.font='11px monospace'; ctx.fillText('INTERPOLATED FRAME (FIS4)', 20, H-120);
+  } else if(fis4 && doNative){
+    ctx.fillStyle='rgba(80,160,255,0.9)'; ctx.font='11px monospace'; ctx.fillText('NATIVE FRAME', 20, H-120);
+  }
+
+  // stats
+  let nowD=performance.now();
+  let frameTime = nowD - lastT; lastT=nowD;
+  ftHistory.push(frameTime);
+  if(ftHistory.length>120) ftHistory.shift();
+  generated++;
+  document.getElementById('sTime').textContent = frameTime.toFixed(1)+'ms';
+  document.getElementById('genCount').textContent = `Generated: ${generated} | Native: ${nativeFrames}`;
+  // graph
+  drawGraph();
+
+  frameCount++;
+}
+requestAnimationFrame(frame);
+
+function drawGrid(phase){
+  ctx.strokeStyle='rgba(30,40,80,0.4)'; ctx.lineWidth=1;
+  let step=80;
+  for(let x=phase%step; x<W; x+=step){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for(let y=(phase*0.7)%step; y<H; y+=step){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+}
+function drawTunnel(off){
+  for(let i=0;i<8;i++){ let pad=i*40; ctx.strokeStyle=`rgba(${30+i*10},${50+i*8},${80+i*14},0.8)`; ctx.lineWidth=2; ctx.strokeRect(off.x+pad/2, off.y+pad/2, W-pad, H-pad); }
+}
+function drawGraph(){
+  const wg=324,hg=70;
+  g.clearRect(0,0,wg,hg);
+  g.fillStyle='#0a0a14'; g.fillRect(0,0,wg,hg);
+  // target lines
+  const eff = fis4 ? baseFPS*2 : baseFPS;
+  const target = 1000/eff;
+  const nativeTarget = 1000/baseFPS;
+  g.strokeStyle='#ffcc00'; g.setLineDash([3,3]); g.lineWidth=1;
+  let ty = hg - (target/33*hg); // 33ms max
+  g.beginPath(); g.moveTo(0,ty); g.lineTo(wg,ty); g.stroke();
+  g.setLineDash([]); g.strokeStyle='rgba(80,160,255,0.5)';
+  let ny = hg - (nativeTarget/33*hg);
+  g.beginPath(); g.moveTo(0,ny); g.lineTo(wg,ny); g.stroke();
+
+  // frame times
+  g.strokeStyle='#00dc78'; g.lineWidth=1.2; g.beginPath();
+  for(let i=0;i<ftHistory.length;i++){
+    let ft=ftHistory[i]; let y = hg - Math.min(32, ft)/33*hg;
+    let x = i/ftHistory.length * wg;
+    if(i===0) g.moveTo(x,y); else g.lineTo(x,y);
+  }
+  g.stroke();
+  // interpolate vs native markers
+  g.fillStyle='#888'; g.font='8px monospace';
+  g.fillText(`${eff} target ${target.toFixed(1)}ms`, 4, ty-2);
+}
+
+addEventListener('keydown', e=>{
+  if(e.code==='Space'){ fis4=!fis4; updateUI(); }
+  if(e.code==='ArrowUp'){ setBase(60); }
+  if(e.code==='ArrowDown'){ setBase(30); }
+  if(e.code==='ArrowLeft'){ prevScene(); }
+  if(e.code==='ArrowRight'){ nextScene(); }
+  if(e.code==='KeyM'){ cycleMode(); }
+  if(e.code==='KeyG'){ showGraph=!showGraph; updateUI(); }
+  if(e.code==='KeyP'){ paused=!paused; }
+  if(e.code==='KeyH'){ document.getElementById('topBar').style.display = document.getElementById('topBar').style.display==='none'?'':'none'; }
+});
+
+updateUI();
+</script>
+</body>
+</html>
